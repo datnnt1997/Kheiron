@@ -75,7 +75,7 @@ class TrainingOptions:
                                          '- `"no"`: No evaluation is done during training.',
                                          '- `"steps"`: Evaluation is done (and logged) every `eval_steps`.',
                                          '- `"epoch"`: Evaluation is done at the end of each epoch.',)})
-    eval_steps: Optional[int] = field(default=None,
+    eval_steps: Optional[int] = field(default=1,
                                       metadata={'help': 'Number of update steps between two evaluations if '
                                                         '`evaluation_strategy="steps"`.'})
 

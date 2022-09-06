@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict
+from typing import Optional, Any, List, Dict, Callable, TypeVar
 from tqdm import tqdm
 
 from kheiron import TrainingOptions
@@ -6,15 +6,18 @@ from kheiron.utils import DefaultMetrics, TrainingStats, OptimizerNames, Schedul
 from kheiron.constants import SavedFiles
 
 from torch import nn
-from torch.utils.data import Dataset, DataLoader, RandomSampler
+from torch.utils.data import Dataset as TorchDataset, DataLoader, RandomSampler
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 
+from datasets.arrow_dataset import Dataset
 import os
 import math
 import torch
 import time
 
+
+T = TypeVar('T')
 
 class Trainer:
     def __init__(self,
@@ -24,7 +27,8 @@ class Trainer:
                  eval_set: Optional[Dataset] = None,
                  optimizer: Optional[Optimizer] = None,
                  lr_scheduler: Optional[LambdaLR] = None,
-                 eval_metrics: Optional[DefaultMetrics] = None):
+                 eval_metrics: Optional[DefaultMetrics] = None,
+                 collate_fn:  Callable[[List[T]], Any] = None):
         self.args = args
         self.optim = optimizer
         self.scheduler = lr_scheduler
@@ -32,6 +36,7 @@ class Trainer:
         self.model = model
         self.train_set = train_set
         self.eval_set = eval_set
+        self.collate_fn = collate_fn
         self.stats = TrainingStats()
 
         # Create output directory if not exist
@@ -157,12 +162,15 @@ class Trainer:
                                                           num_training_steps=training_steps)
 
     def evaluate(self):
-        if self.train_set is None or not isinstance(self.eval_set, Dataset):
+        if self.eval_set is None or \
+                (not isinstance(self.eval_set, Dataset) and not isinstance(self.eval_set, TorchDataset)):
             raise TypeError(
-                f"Expected type 'torch.utils.data.Dataset' for `eval_set`, got '{type(self.eval_set)}' instead."
+                f"Expected type `torch.utils.data.Dataset` or `datasets.arrow_dataset.Dataset` for `eval_set`, "
+                f"got '{type(self.eval_set)}' instead."
             )
         eval_iterator = DataLoader(self.eval_set,
                                    batch_size=self.args.eval_batch_size,
+                                   collate_fn=self.collate_fn,
                                    num_workers=self.args.processor_num_workers)
         num_examples = len(self.eval_set)
         len_iterator = len(eval_iterator)
@@ -202,14 +210,17 @@ class Trainer:
         return metrics
 
     def train(self):
-        if self.train_set is None or not isinstance(self.train_set, Dataset):
+        if self.train_set is None or \
+                (not isinstance(self.train_set, Dataset) and not isinstance(self.train_set, TorchDataset)):
             raise TypeError(
-                f"Expected type 'torch.utils.data.Dataset' for `train_set`, got '{type(self.train_set)}' instead."
+                f"Expected type `torch.utils.data.Dataset` or `datasets.arrow_dataset.Dataset` for `train_set`, "
+                f"got '{type(self.train_set)}' instead."
             )
 
         train_iterator = DataLoader(self.train_set,
                                     sampler=RandomSampler(self.train_set),
                                     batch_size=self.args.train_batch_size,
+                                    collate_fn=self.collate_fn,
                                     num_workers=self.args.processor_num_workers)
         num_examples = len(self.train_set)
         len_iterator = len(train_iterator)
