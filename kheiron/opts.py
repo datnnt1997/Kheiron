@@ -79,6 +79,11 @@ class TrainingOptions:
                                       metadata={'help': 'Number of update steps between two evaluations if '
                                                         '`evaluation_strategy="steps"`.'})
 
+    # Other parameters
+    track_metrics: bool = field(default=False,
+                                metadata={'help': 'whether to enable track various metrics such as accuracy and log '
+                                                  'loss on training or validation progress.'})
+
     def __str__(self):
         self_as_dict = asdict(self)
 

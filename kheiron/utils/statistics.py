@@ -1,12 +1,21 @@
+from typing import Union
+from datetime import datetime
+from collections import defaultdict
+
+from torch.utils.tensorboard import SummaryWriter
+
+import os
 import json
 
 
 class TrainingStats:
-    def __init__(self):
+    def __init__(self,
+                 metrics_tracking=False,
+                 log_dir: Union[str or os.PathLike] = f'trainer_output_{datetime.now().strftime("%H%M%S_%d%h%Y")}'):
         default_stats = {
             # Training progress
-            'curr_epoch': None,
-            'curr_global_step': None,
+            'curr_epoch': 0,
+            'curr_global_step': 0,
             'max_steps': 0,
             'train_examples': 0,
             'train_epochs': 0,
@@ -15,12 +24,16 @@ class TrainingStats:
             # Evaluate progress
             'eval_examples': 0,
             'evaluation_strategy': None,
+            'metric_for_best_model': 'loss',
             'best_score': None,
             'best_loss': None,
             'best_step': None,
-            'eval_scores': {}
+            'eval_scores': {} if metrics_tracking else defaultdict(list)
         }
         self._stats = default_stats
+        self.metrics_tracking = metrics_tracking
+        if metrics_tracking:
+            self.tracking_board = SummaryWriter(log_dir=os.path.join(log_dir, '/logs'))
 
     def set_stats(self, stats):
         self._stats = stats
@@ -52,3 +65,26 @@ class TrainingStats:
         with open(json_path, "r", encoding="utf-8") as f:
             text = f.read()
         self._stats = json.loads(text)
+
+    def get_evaluation_step(self):
+        if self._stats['evaluation_strategy'] == 'epoch':
+            return self.get_value('curr_epoch')
+        else:
+            return self.get_value('curr_global_step')
+
+    def update_eval_metrics(self, metrics: dict):
+        if self.metrics_tracking:
+            for k, v in metrics.items():
+                self.tracking_board.add_scalar(tag=k,
+                                               scalar_value=v,
+                                               global_step=self.get_evaluation_step())
+                self._stats['eval_metrics'][k].append(v)
+        else:
+            self.set_value('eval_metrics', metrics)
+
+    def get_eval_metrics_str(self):
+        metrics_str = ''
+        for k, v in self._stats['eval_metrics'].items():
+            curr_value = v[-1] if self.metrics_tracking else v
+            metrics_str += f'{k} = {curr_value}; '
+        return metrics_str

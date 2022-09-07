@@ -12,7 +12,6 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from datasets.arrow_dataset import Dataset
 import os
-import json
 import math
 import torch
 import time
@@ -39,11 +38,13 @@ class Trainer:
         self.train_set = train_set
         self.eval_set = eval_set
         self.collate_fn = collate_fn
-        self.stats = TrainingStats()
 
         # Create output directory if not exist
         if not os.path.exists(self.args.output_dir):
             os.makedirs(self.args.output_dir)
+
+        # Create training statistics
+        self.stats = TrainingStats(metrics_tracking=args.track_metrics, log_dir=args.output_dir)
 
         # Set seed
         set_ramdom_seed(self.args.seed)
@@ -116,6 +117,8 @@ class Trainer:
         ep_loss = torch.tensor(0.0).to(self.args.device)
 
         for step_batch in process_bar:
+            process_bar.desc = f'Epoch = {self.stats.get_value("curr_epoch")}/{self.stats.get_value("train_epochs")}; ' \
+                               f'Global step = {self.stats.get_value("curr_global_step")}/{self.stats.get_value("max_steps")}'
             self.model.zero_grad()
             self._preprocess_inputs(step_batch)
             outputs = self.model(**step_batch)
@@ -219,12 +222,12 @@ class Trainer:
         metrics['eval_loss'] = eval_loss.item() / len_iterator
 
         # Update statistics with evaluation scores
-        self.stats.set_value('eval_scores', metrics)
+        self.stats.update_eval_metrics(metrics)
 
         # Log result
         LOGGER.info(f"   Evaluation results: ")
         LOGGER.info(f'     Key metrics: Loss: {metrics["eval_loss"]}; {self.args.metric_for_best_model}: {metrics[f"eval_{self.args.metric_for_best_model}"]}')
-        LOGGER.info(f'     Full metrics: {json.dumps(metrics)}')
+        LOGGER.info(f'     Full metrics: {self.stats.get_eval_metrics_str()}')
         return metrics
 
     def train(self):
@@ -277,8 +280,10 @@ class Trainer:
             trained_progress_bar = tqdm(train_iterator,
                                         total=num_update_steps_per_epoch,
                                         leave=True,
-                                        position=0)
-            # self._fit_one_epoch(trained_progress_bar)
+                                        position=0,
+                                        desc=f'Epoch = {curr_epoch}/{num_train_epochs}; '
+                                             f'Global step = {self.stats.get_value("curr_global_step")}/{max_steps}')
+            self._fit_one_epoch(trained_progress_bar)
             if self.args.evaluation_strategy == 'epoch':
                 metrics = self.evaluate()
                 if self._is_better_model(metrics, f'eval_{self.args.metric_for_best_model}'):
