@@ -12,6 +12,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from datasets.arrow_dataset import Dataset
 import os
+import json
 import math
 import torch
 import time
@@ -98,7 +99,7 @@ class Trainer:
                     f'{model_name}.{child_name}'
                     for child_name in self._get_optimizer_parameter_names(child_model, f'{parent_name}.{model_name}')
                 ]
-        param_names += [n for n in list(self.model._parameters.keys()) if n not in self.args.no_decay_param_names]
+        param_names += [n for n in list(model._parameters.keys()) if n not in self.args.no_decay_param_names]
         return param_names
 
     def _preprocess_inputs(self, batch: dict):
@@ -216,6 +217,14 @@ class Trainer:
         scores = self.eval_metrics(true_seqs=golds, pred_seqs=preds, task=self.args.task)
         metrics = {f"eval_{key}": score for key, score in scores.items()}
         metrics['eval_loss'] = eval_loss.item() / len_iterator
+
+        # Update statistics with evaluation scores
+        self.stats.set_value('eval_scores', metrics)
+
+        # Log result
+        LOGGER.info(f"   Evaluation results: ")
+        LOGGER.info(f'     Key metrics: Loss: {metrics["eval_loss"]}; {self.args.metric_for_best_model}: {metrics[f"eval_{self.args.metric_for_best_model}"]}')
+        LOGGER.info(f'     Full metrics: {json.dumps(metrics)}')
         return metrics
 
     def train(self):
@@ -269,7 +278,7 @@ class Trainer:
                                         total=num_update_steps_per_epoch,
                                         leave=True,
                                         position=0)
-            self._fit_one_epoch(trained_progress_bar)
+            # self._fit_one_epoch(trained_progress_bar)
             if self.args.evaluation_strategy == 'epoch':
                 metrics = self.evaluate()
                 if self._is_better_model(metrics, f'eval_{self.args.metric_for_best_model}'):

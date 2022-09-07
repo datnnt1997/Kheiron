@@ -19,8 +19,8 @@ model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-mult
                                                            num_labels=len(id2label))
 
 options = TrainingOptions(task='text-classification',
-                          train_batch_size=8,
-                          eval_batch_size=8,
+                          train_batch_size=1,
+                          eval_batch_size=1,
                           metric_for_best_model='macro_f1',
                           greater_is_better=True)
 

@@ -18,7 +18,7 @@ class TrainingStats:
             'best_score': None,
             'best_loss': None,
             'best_step': None,
-
+            'eval_scores': {}
         }
         self._stats = default_stats
 
