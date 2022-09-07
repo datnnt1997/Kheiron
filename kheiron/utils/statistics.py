@@ -33,7 +33,10 @@ class TrainingStats:
 
     def inc_value(self, key, count=1, start=0):
         d = self._stats
-        d[key] = d.setdefault(key, start) + count
+        if d.setdefault(key, start) is None:
+            d[key] = count
+        else:
+            d[key] = d.setdefault(key, start) + count
 
     def clear_stats(self):
         self._stats.clear()

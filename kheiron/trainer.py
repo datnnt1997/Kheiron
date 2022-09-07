@@ -78,20 +78,15 @@ class Trainer:
         self.stats.save_to_json(os.path.join(self.args.output_dir, SavedFiles.TRAINING_STATS_FILE))
 
         # Save optimizer
-        torch.save(self.optim.state_dict(), os.path.join(self.args.output_dir, SavedFiles.TRAINING_STATS_FILE))
+        torch.save(self.optim.state_dict(), os.path.join(self.args.output_dir, SavedFiles.OPTIMIZER_FILE))
 
         # Save Scheduler
         torch.save(self.scheduler.state_dict(), os.path.join(self.args.output_dir, SavedFiles.SCHEDULER_FILE))
 
     def _save_model(self):
         state_dict = self.model.state_dict()
-        args = self.args.to_dict()
         LOGGER.info(f"Saving model checkpoint to {os.path.join(self.args.output_dir, SavedFiles.WEIGHT_MODEL_FILE)}")
-        data = {
-            'state_dict': state_dict,
-            'args_dict': args
-        }
-        torch.save(data, self.args.output_dir)
+        torch.save(state_dict, os.path.join(self.args.output_dir, SavedFiles.WEIGHT_MODEL_FILE))
 
     def _get_optimizer_parameter_names(self, model: nn.Module, parent_name: str = '') -> List[str]:
         if parent_name in self.args.no_decay_param_names:

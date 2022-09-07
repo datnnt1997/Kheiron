@@ -1,9 +1,7 @@
 from datasets import load_dataset
 from kheiron import Trainer, TrainingOptions
 
-from transformers import AutoTokenizer
-from transformers import DataCollatorWithPadding
-from transformers import AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 
 
 def preprocess_func(examples):
@@ -17,11 +15,12 @@ id2label = sorted(set(rawsets['train']['labels']))
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-multilingual-cased")
 tokenized_sets = rawsets.map(preprocess_func, batched=True)
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-multilingual-cased", num_labels=len(id2label))
+model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-multilingual-cased",
+                                                           num_labels=len(id2label))
 
 options = TrainingOptions(task='text-classification',
-                          train_batch_size=32,
-                          eval_batch_size=32,
+                          train_batch_size=8,
+                          eval_batch_size=8,
                           metric_for_best_model='macro_f1',
                           greater_is_better=True)
 
