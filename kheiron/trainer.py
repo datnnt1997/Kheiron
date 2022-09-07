@@ -15,9 +15,10 @@ import os
 import math
 import torch
 import time
-
+import inspect
 
 T = TypeVar('T')
+
 
 class Trainer:
     def __init__(self,
@@ -48,6 +49,8 @@ class Trainer:
 
         # Move model to device
         self.model = model.to(self.args.device)
+        self.signature_features = ["label", "label_ids"] + list(inspect.signature(self.model.forward).parameters.keys())
+        self.ununsed_features = []
 
         # Set up the optimizer
         if self.optim is None:
@@ -55,6 +58,17 @@ class Trainer:
 
         if self.eval_metrics is None:
             self.eval_metrics = DefaultMetrics()
+
+    def _remove_ununsed_features(self, feature: dict):
+        for k in self.ununsed_features:
+            del feature[k]
+
+    def _wrap_collator_with_removed_unused_features(self, features: List[dict]):
+        for feature in features:
+            self._remove_ununsed_features(feature)
+        if self.collate_fn is None:
+            return features
+        return self.collate_fn(features)
 
     def _save_training_step(self):
         # Save training arguments
@@ -170,7 +184,7 @@ class Trainer:
             )
         eval_iterator = DataLoader(self.eval_set,
                                    batch_size=self.args.eval_batch_size,
-                                   collate_fn=self.collate_fn,
+                                   collate_fn=self._wrap_collator_with_removed_unused_features,
                                    num_workers=self.args.processor_num_workers)
         num_examples = len(self.eval_set)
         len_iterator = len(eval_iterator)
@@ -216,11 +230,11 @@ class Trainer:
                 f"Expected type `torch.utils.data.Dataset` or `datasets.arrow_dataset.Dataset` for `train_set`, "
                 f"got '{type(self.train_set)}' instead."
             )
-
+        self.ununsed_features = list(set(self.train_set[0].keys()) - set(self.signature_features))
         train_iterator = DataLoader(self.train_set,
                                     sampler=RandomSampler(self.train_set),
                                     batch_size=self.args.train_batch_size,
-                                    collate_fn=self.collate_fn,
+                                    collate_fn=self._wrap_collator_with_removed_unused_features,
                                     num_workers=self.args.processor_num_workers)
         num_examples = len(self.train_set)
         len_iterator = len(train_iterator)
