@@ -20,20 +20,23 @@ class TrainingStats:
             'train_examples': 0,
             'train_epochs': 0,
             'train_batch_size': 0,
-            'train_loss': None,
+            'train_metrics': defaultdict(list) if metrics_tracking else {},
             # Evaluate progress
             'eval_examples': 0,
+            'eval_batch_size': 0,
+            'total_eval_steps': 0,
             'evaluation_strategy': None,
             'metric_for_best_model': 'loss',
+            'eval_metrics': defaultdict(list) if metrics_tracking else {},
+            # Best model
             'best_score': None,
             'best_loss': None,
             'best_step': None,
-            'eval_scores': {} if metrics_tracking else defaultdict(list)
         }
         self._stats = default_stats
         self.metrics_tracking = metrics_tracking
         if metrics_tracking:
-            self.tracking_board = SummaryWriter(log_dir=os.path.join(log_dir, '/logs'))
+            self.tracking_board = SummaryWriter(log_dir=os.path.join(log_dir, 'logs'))
 
     def set_stats(self, stats):
         self._stats = stats
@@ -71,6 +74,23 @@ class TrainingStats:
             return self.get_value('curr_epoch')
         else:
             return self.get_value('curr_global_step')
+
+    def update_train_metrics(self, metrics: dict):
+        if self.metrics_tracking:
+            for k, v in metrics.items():
+                self.tracking_board.add_scalar(tag=k,
+                                               scalar_value=v,
+                                               global_step=self.get_evaluation_step())
+                self._stats['train_metrics'][k].append(v)
+        else:
+            self.set_value('train_metrics', metrics)
+
+    def get_train_metrics_str(self):
+        metrics_str = ''
+        for k, v in self._stats['train_metrics'].items():
+            curr_value = v[-1] if self.metrics_tracking else v
+            metrics_str += f'{k} = {curr_value}; '
+        return metrics_str
 
     def update_eval_metrics(self, metrics: dict):
         if self.metrics_tracking:
