@@ -1,0 +1,6 @@
+torch~=1.12.1
+transformers==4.21.2
+loguru~=0.6.0
+jsonlines~=3.1.0
+datasets~=2.4.0
+tensorboard~=2.10.0

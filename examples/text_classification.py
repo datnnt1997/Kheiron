@@ -19,13 +19,14 @@ model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-mult
                                                            num_labels=len(id2label))
 
 options = TrainingOptions(task='text-classification',
-                          train_batch_size=1,
-                          eval_batch_size=1,
+                          train_batch_size=8,
+                          eval_batch_size=8,
                           metric_for_best_model='macro_f1',
-                          greater_is_better=True)
+                          greater_is_better=True,
+                          track_metrics=True)
 
 trainer = Trainer(model=model,
-                  args=options,
+                  opts=options,
                   train_set=tokenized_sets['train'],
                   eval_set=tokenized_sets['test'],
                   collate_fn=data_collator)
