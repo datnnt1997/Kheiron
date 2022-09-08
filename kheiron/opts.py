@@ -52,6 +52,8 @@ class TrainingOptions:
                                 metadata={'help': ''})
     max_grad_norm: float = field(default=1.0,
                                  metadata={'help': ''})
+    momentum: float = field(default=0,
+                            metadata={'help': 'momentum factor for SGD optimizer. (default: 0)'})
 
     # Learning rate Scheduler
     scheduler_name: str = field(default='linear',
@@ -60,6 +62,10 @@ class TrainingOptions:
                                      metadata={'help': ''})
     warmup_steps: int = field(default=0,
                               metadata={'help': ''})
+    decay_step: int = field(default=1,
+                            metadata={'help': 'Period of learning rate decay for StepLR.'})
+    gamma: int = field(default=0.1,
+                       metadata={'help': 'Multiplicative factor of learning rate decay for StepLR.'})
     gradient_accumulation_steps: int = field(default=1,
                                              metadata={'help': ''})
     max_steps: int = field(default=0,

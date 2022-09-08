@@ -1,5 +1,4 @@
-from torch.optim.lr_scheduler import LambdaLR
-
+from torch.optim.lr_scheduler import LambdaLR, StepLR
 
 def get_linear_scheduler_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
     def lr_lambda(current_step: int):
@@ -10,7 +9,10 @@ def get_linear_scheduler_with_warmup(optimizer, num_warmup_steps, num_training_s
         )
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
+def get_step_scheduler_with_warmup(optimizer, step_size, gamma, last_epoch=-1):
+    return StepLR(optimizer, step_size, gamma=gamma, last_epoch=last_epoch)
 
 class SchedulerNames:
     Linear = {'name': 'linear', 'cls': get_linear_scheduler_with_warmup}
+    StepLR = {'name': 'steplr', 'cls': get_step_scheduler_with_warmup}
 

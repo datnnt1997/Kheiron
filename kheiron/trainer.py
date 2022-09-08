@@ -193,7 +193,11 @@ class Trainer:
                                                      lr=self.opts.learning_rate,
                                                      betas=(self.opts.adam_beta1, self.opts.adam_beta2),
                                                      eps=self.opts.adam_epsilon)
-
+        if self.opts.optimizer_name == OptimizerNames.SGD['name']:
+            self.optim = OptimizerNames.SGD['cls'](optimizer_grouped_parameters,
+                                                   lr=self.opts.learning_rate,
+                                                   momentum=self.opts.momentum
+                                                   )
     def create_scheduler(self, num_training_steps: int):
         warmup_steps = self.opts.warmup_steps if self.opts.warmup_steps > 0 \
             else math.ceil(num_training_steps * self.opts.warmup_proportion)
@@ -202,6 +206,12 @@ class Trainer:
             self.scheduler = SchedulerNames.Linear['cls'](optimizer=self.optim,
                                                           num_warmup_steps=warmup_steps,
                                                           num_training_steps=training_steps)
+        if self.opts.scheduler_name == SchedulerNames.StepLR['name']:
+            self.scheduler = SchedulerNames.StepLR['cls'](optimizer=self.optim,
+                                                          step_size=self.opts.decay_step,
+                                                          gamma=self.opts.gamma,
+                                                          last_epoch=-1)
+
 
     def evaluate(self):
         if self.eval_set is None or \
