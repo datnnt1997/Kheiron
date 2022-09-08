@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [ $1 == "clean" ]; then
-    rm -rf build dist CygnusX1.egg-info
+    rm -rf build dist kheiron.egg-info
     echo "This project was cleaned!!!"
 elif [ $1 == "build" ]; then
     bash project.sh clean

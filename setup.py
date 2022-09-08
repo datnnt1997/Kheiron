@@ -1,4 +1,5 @@
 import pathlib
+from kheiron import __version__
 from setuptools import find_packages, setup
 
 HERE = pathlib.Path(__file__).parent
@@ -7,7 +8,7 @@ requires = (HERE / 'requirements.txt').read_text().split('\n')
 
 setup(
     name="Kheiron",
-    version="1.0.0",
+    version=__version__,
     description="Kheiron: Train and evaluate libary for Pytorch model.",
     long_description=README,
     long_description_content_type="text/markdown",
