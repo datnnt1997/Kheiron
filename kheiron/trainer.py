@@ -66,6 +66,8 @@ class Trainer:
             del feature[k]
 
     def _wrap_collator_with_removed_unused_features(self, features: List[dict]):
+        if len(self.ununsed_features) == 0 and isinstance(features, dict):
+            self.ununsed_features = list(set(features.keys()) - set(self.signature_features))
         for feature in features:
             self._remove_ununsed_features(feature)
         if self.collate_fn is None:
@@ -275,7 +277,8 @@ class Trainer:
                 f"Expected type `torch.utils.data.Dataset` or `datasets.arrow_dataset.Dataset` for `train_set`, "
                 f"got '{type(self.train_set)}' instead."
             )
-        self.ununsed_features = list(set(self.train_set[0].keys()) - set(self.signature_features))
+        if isinstance(self.train_set[0], dict):
+            self.ununsed_features = list(set(self.train_set[0].keys()) - set(self.signature_features))
         train_iterator = DataLoader(self.train_set,
                                     sampler=RandomSampler(self.train_set),
                                     batch_size=self.opts.train_batch_size,
