@@ -14,3 +14,9 @@ def set_ramdom_seed(seed: int):
 
     if torch.cuda.is_available() and seed > 0:
         torch.cuda.manual_seed_all(seed)
+
+
+def get_spend_time(start, end):
+    hours, rem = divmod(end-start, 3600)
+    minutes, seconds = divmod(rem, 60)
+    return "{:0>2}:{:0>2}:{:05.2f}".format(int(hours), int(minutes), seconds)

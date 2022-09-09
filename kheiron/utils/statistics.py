@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import os
 import json
-
+import time
 
 class TrainingStats:
     def __init__(self,
@@ -21,22 +21,21 @@ class TrainingStats:
             'train_epochs': 0,
             'train_batch_size': 0,
             'train_metrics': defaultdict(list) if metrics_tracking else {},
+            'closed_reason': None,
             # Evaluate progress
             'eval_examples': 0,
             'eval_batch_size': 0,
             'total_eval_steps': 0,
             'evaluation_strategy': None,
             'metric_for_best_model': 'loss',
-            'eval_metrics': defaultdict(list) if metrics_tracking else {},
-            # Best model
-            'best_score': None,
-            'best_loss': None,
-            'best_step': None,
+            'eval_metrics': defaultdict(list) if metrics_tracking else {}
+
         }
         self._stats = default_stats
         self.metrics_tracking = metrics_tracking
         if metrics_tracking:
             self.tracking_board = SummaryWriter(log_dir=os.path.join(log_dir, 'logs'))
+        self.cached_time = time.time()
 
     def set_stats(self, stats):
         self._stats = stats
@@ -53,6 +52,9 @@ class TrainingStats:
             d[key] = count
         else:
             d[key] = d.setdefault(key, start) + count
+
+    def update_time(self):
+        self.cached_time = time.time()
 
     def clear_stats(self):
         self._stats.clear()
@@ -75,36 +77,31 @@ class TrainingStats:
         else:
             return self.get_value('curr_global_step')
 
-    def update_train_metrics(self, metrics: dict):
+    def _update_metrics(self, metrics: dict, metrics_name: str):
         if self.metrics_tracking:
             for k, v in metrics.items():
                 self.tracking_board.add_scalar(tag=k,
                                                scalar_value=v,
                                                global_step=self.get_evaluation_step())
-                self._stats['train_metrics'][k].append(v)
+                self._stats[metrics_name][k].append(v)
         else:
-            self.set_value('train_metrics', metrics)
+            self.set_value(metrics_name, metrics)
 
-    def get_train_metrics_str(self):
+    def _metrics_to_str(self, metrics_name):
         metrics_str = ''
-        for k, v in self._stats['train_metrics'].items():
+        for k, v in self._stats[metrics_name].items():
             curr_value = v[-1] if self.metrics_tracking else v
-            metrics_str += f'{k} = {curr_value}; '
+            metrics_str += f'{k} = {curr_value:.4f}; '
         return metrics_str
+
+    def update_train_metrics(self, metrics: dict):
+        self._update_metrics(metrics, metrics_name='train_metrics')
 
     def update_eval_metrics(self, metrics: dict):
-        if self.metrics_tracking:
-            for k, v in metrics.items():
-                self.tracking_board.add_scalar(tag=k,
-                                               scalar_value=v,
-                                               global_step=self.get_evaluation_step())
-                self._stats['eval_metrics'][k].append(v)
-        else:
-            self.set_value('eval_metrics', metrics)
+        self._update_metrics(metrics, metrics_name='eval_metrics')
+
+    def get_train_metrics_str(self) -> str:
+        return self._metrics_to_str(metrics_name='train_metrics')
 
     def get_eval_metrics_str(self):
-        metrics_str = ''
-        for k, v in self._stats['eval_metrics'].items():
-            curr_value = v[-1] if self.metrics_tracking else v
-            metrics_str += f'{k} = {curr_value}; '
-        return metrics_str
+        return self._metrics_to_str(metrics_name='eval_metrics')

@@ -2,7 +2,7 @@ from typing import Optional, Any, List, Dict, Callable, TypeVar
 from tqdm import tqdm
 
 from kheiron import TrainingOptions
-from kheiron.utils import DefaultMetrics, TrainingStats, OptimizerNames, SchedulerNames, LOGGER, set_ramdom_seed
+from kheiron.utils import *
 from kheiron.constants import SavedFiles
 
 from torch import nn
@@ -51,6 +51,8 @@ class Trainer:
 
         # Move model to device
         self.model = model.to(self.opts.device)
+
+        # Data unused features
         self.signature_features = ["label", "label_ids"] + list(inspect.signature(self.model.forward).parameters.keys())
         self.ununsed_features = []
 
@@ -58,8 +60,21 @@ class Trainer:
         if self.optim is None:
             self.create_optimizer()
 
+        # Set up the Scheduler
+            self.scheduler_update_strategy = 'step'
+
         if self.eval_metrics is None:
             self.eval_metrics = DefaultMetrics()
+
+    def _close_train_progress(self) -> str:
+        LOGGER.info('\n'
+                    f'Trainer closed ({self.stats.get_value("closed_reason")})\n'
+                    f'Total progress spend time: {get_spend_time(self.stats.cached_time, time.time())}\n' \
+                    f'Best model at {self.stats.get_value("evaluation_strategy")} {self.stats.get_value("best_step")}: ' \
+                    f'eval_loss = {self.stats.get_value("best_loss")}; ' \
+                    f'key metric (eval_{self.stats.get_value("metric_for_best_model")}) = {self.stats.get_value("best_score")} \n' \
+                    f'Model checkpoint and logs saved at `{self.opts.output_dir}`')
+
 
     def _remove_ununsed_features(self, feature: dict):
         for k in self.ununsed_features:
@@ -118,6 +133,14 @@ class Trainer:
         self.model.train()
         ep_loss = torch.tensor(0.0).to(self.opts.device)
         len_iterator = len(process_bar)
+
+        LOGGER.info('')
+        LOGGER.info("****** Trainning Process ****** ")
+        LOGGER.info(f"  Number of samples        = {len(self.train_set)}")
+        LOGGER.info(f"  Train batch size         = {self.opts.train_batch_size}")
+        LOGGER.info(f"  Total epoch steps        = {len_iterator}")
+        LOGGER.info(f"  Learning rate            = {get_lr_strings(self.optim)}")
+
         for step_batch in process_bar:
             process_bar.desc = f'Epoch = ' \
                                f'{self.stats.get_value("curr_epoch")}/{self.stats.get_value("train_epochs")}; ' \
@@ -138,7 +161,8 @@ class Trainer:
             ep_loss += step_loss.detach()
             torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(), max_norm=self.opts.max_grad_norm)
             self.optim.step()
-            self.scheduler.step()
+            if self.scheduler_update_strategy == 'step':
+                self.scheduler.step()
             self.stats.inc_value('curr_global_step')
 
             # Check evaluation strategy
@@ -161,17 +185,17 @@ class Trainer:
 
         # Log result
         LOGGER.info(f"  Fit epoch results: ")
-        LOGGER.info(f'    Key metrics: Loss: {metrics["train_loss"]};')
+        LOGGER.info(f'    Key metrics: Loss: {metrics["train_loss"]:.4f};')
         LOGGER.info(f'    Full metrics: {self.stats.get_train_metrics_str()}')
 
         return metrics
 
     def _is_better_model(self, metrics: Dict, key_metric: str) -> bool:
         if self.opts.greater_is_better \
-                and self.stats.get_value('best_scores', float('-inf')) < metrics[key_metric]:
+                and self.stats.get_value('best_score', float('-inf')) < metrics[key_metric]:
             return True
         elif not self.opts.greater_is_better \
-                and self.stats.get_value('best_scores', float('inf')) > metrics[key_metric]:
+                and self.stats.get_value('best_score', float('inf')) > metrics[key_metric]:
             return True
         else:
             return False
@@ -198,6 +222,7 @@ class Trainer:
                                                    lr=self.opts.learning_rate,
                                                    momentum=self.opts.momentum
                                                    )
+
     def create_scheduler(self, num_training_steps: int):
         warmup_steps = self.opts.warmup_steps if self.opts.warmup_steps > 0 \
             else math.ceil(num_training_steps * self.opts.warmup_proportion)
@@ -206,12 +231,13 @@ class Trainer:
             self.scheduler = SchedulerNames.Linear['cls'](optimizer=self.optim,
                                                           num_warmup_steps=warmup_steps,
                                                           num_training_steps=training_steps)
+            self.scheduler_update_strategy = SchedulerNames.Linear['update_strategy']
         if self.opts.scheduler_name == SchedulerNames.StepLR['name']:
             self.scheduler = SchedulerNames.StepLR['cls'](optimizer=self.optim,
                                                           step_size=self.opts.decay_step,
                                                           gamma=self.opts.gamma,
                                                           last_epoch=-1)
-
+            self.scheduler_update_strategy = SchedulerNames.StepLR['update_strategy']
 
     def evaluate(self):
         if self.eval_set is None or \
@@ -275,12 +301,14 @@ class Trainer:
 
         # Log result
         LOGGER.info(f"   Evaluation results: ")
-        LOGGER.info(f'     Key metrics: Loss: {metrics["eval_loss"]}; '
-                    f'{self.opts.metric_for_best_model}: {metrics[f"eval_{self.opts.metric_for_best_model}"]}')
+        LOGGER.info(f'     Key metrics: Loss: {metrics["eval_loss"]:.4f}; '
+                    f'{self.opts.metric_for_best_model}: {metrics[f"eval_{self.opts.metric_for_best_model}"]:.4f}')
         LOGGER.info(f'     Full metrics: {self.stats.get_eval_metrics_str()}')
         return metrics
 
     def train(self):
+        self.stats.update_time()
+
         if self.train_set is None or \
                 (not isinstance(self.train_set, Dataset) and not isinstance(self.train_set, TorchDataset)):
             raise TypeError(
@@ -312,13 +340,11 @@ class Trainer:
             self.create_scheduler(num_training_steps=max_steps)
 
         # Start fit model with trainning examples
-        LOGGER.info("****** Trainning Process ****** ")
-        LOGGER.info(f"  Training task            = {self.opts.task}")
-        LOGGER.info(f"  Number of samples        = {num_examples}")
-        LOGGER.info(f"  Number of epochs         = {num_train_epochs}")
-        LOGGER.info(f"  Train batch size         = {self.opts.train_batch_size}")
-        LOGGER.info(f"  Total optimization steps = {max_steps}")
-        LOGGER.info(f"  Evaluation strategy      = {self.opts.eval_steps}({self.opts.evaluation_strategy})")
+        LOGGER.info(f"****** Trainning Summary ******\n"
+                    f"  Training task            = {self.opts.task}\n"
+                    f"  Number of epochs         = {num_train_epochs}\n"
+                    f"  Total optimization steps = {max_steps}\n"
+                    f"  Evaluation strategy      = {self.opts.eval_steps}({self.opts.evaluation_strategy})")
 
         # Update Training statistics
         self.stats.set_value('max_steps', max_steps)
@@ -337,6 +363,9 @@ class Trainer:
                                              f'Global step = {self.stats.get_value("curr_global_step")}/{max_steps}')
             _ = self._fit_one_epoch(trained_progress_bar)
 
+            if self.scheduler_update_strategy == 'epoch':
+                self.scheduler.step()
+
             if self.opts.evaluation_strategy == 'epoch':
                 eval_metrics = self.evaluate()
                 if self._is_better_model(eval_metrics, f'eval_{self.opts.metric_for_best_model}'):
@@ -347,3 +376,6 @@ class Trainer:
                     self.stats.set_value('best_loss', eval_metrics['eval_loss'])
                     self.stats.set_value('best_score', eval_metrics[f'eval_{self.opts.metric_for_best_model}'])
                     self.stats.set_value('best_step', self.stats.get_evaluation_step())
+
+        self.stats.set_value('closed_reason', 'finished')
+        self._close_train_progress()

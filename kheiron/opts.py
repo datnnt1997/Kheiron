@@ -62,10 +62,10 @@ class TrainingOptions:
                                      metadata={'help': ''})
     warmup_steps: int = field(default=0,
                               metadata={'help': ''})
-    decay_step: int = field(default=1,
-                            metadata={'help': 'Period of learning rate decay for StepLR.'})
-    gamma: int = field(default=0.1,
-                       metadata={'help': 'Multiplicative factor of learning rate decay for StepLR.'})
+    decay_step: float = field(default=1.0,
+                              metadata={'help': 'Period of learning rate decay for StepLR.'})
+    gamma: float = field(default=0.1,
+                         metadata={'help': 'Multiplicative factor of learning rate decay for StepLR.'})
     gradient_accumulation_steps: int = field(default=1,
                                              metadata={'help': ''})
     max_steps: int = field(default=0,
