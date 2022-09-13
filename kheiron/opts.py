@@ -84,6 +84,12 @@ class TrainingOptions:
     eval_steps: Optional[int] = field(default=1,
                                       metadata={'help': 'Number of update steps between two evaluations if '
                                                         '`evaluation_strategy="steps"`.'})
+    # Early Stopping
+    early_stopping_steps: int = field(default=0,
+                                      metadata={'help': ''})
+
+    early_stopping_min_delta: float = field(default=0,
+                                            metadata={'help': ''})
 
     # Other parameters
     track_metrics: bool = field(default=False,

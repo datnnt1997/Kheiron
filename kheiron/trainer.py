@@ -1,9 +1,10 @@
 from typing import Optional, Any, List, Dict, Callable, TypeVar
 from tqdm import tqdm
 
-from kheiron import TrainingOptions
 from kheiron.utils import *
 from kheiron.constants import SavedFiles
+from kheiron.opts import TrainingOptions
+from kheiron.early_stop import EarlyStopping
 
 from torch import nn
 from torch.utils.data import Dataset as TorchDataset, DataLoader, RandomSampler
@@ -38,6 +39,7 @@ class Trainer:
         self.train_set = train_set
         self.eval_set = eval_set
         self.collate_fn = collate_fn
+        self.early_stopping = None
 
         # Create output directory if not exist
         if not os.path.exists(self.opts.output_dir):
@@ -66,15 +68,20 @@ class Trainer:
         if self.eval_metrics is None:
             self.eval_metrics = DefaultMetrics()
 
-    def _close_train_progress(self) -> str:
+        if self.opts.early_stopping_steps > 0:
+            self.early_stopping = EarlyStopping(patience=self.opts.early_stopping_steps,
+                                                min_delta=self.opts.early_stopping_min_delta)
+
+    def _close_train_progress(self):
         LOGGER.info('\n'
                     f'Trainer closed ({self.stats.get_value("closed_reason")})\n'
-                    f'Total progress spend time: {get_spend_time(self.stats.cached_time, time.time())}\n' \
+                    f'Total progress spend time: {get_spend_time(self.stats.cached_time, time.time())}\n'
+                    f'Trained epoch {self.stats.get_value("curr_epoch")}/{self.stats.get_value("train_epochs")}; '
+                    f'Global step = {self.stats.get_value("curr_global_step")}/{self.stats.get_value("max_steps")}\n' \
                     f'Best model at {self.stats.get_value("evaluation_strategy")} {self.stats.get_value("best_step")}: ' \
                     f'eval_loss = {self.stats.get_value("best_loss")}; ' \
                     f'key metric (eval_{self.stats.get_value("metric_for_best_model")}) = {self.stats.get_value("best_score")} \n' \
                     f'Model checkpoint and logs saved at `{self.opts.output_dir}`')
-
 
     def _remove_ununsed_features(self, feature: dict):
         for k in self.ununsed_features:
@@ -134,18 +141,12 @@ class Trainer:
         ep_loss = torch.tensor(0.0).to(self.opts.device)
         len_iterator = len(process_bar)
 
-        LOGGER.info('')
-        LOGGER.info("****** Trainning Process ****** ")
-        LOGGER.info(f"  Number of samples        = {len(self.train_set)}")
-        LOGGER.info(f"  Train batch size         = {self.opts.train_batch_size}")
-        LOGGER.info(f"  Total epoch steps        = {len_iterator}")
-        LOGGER.info(f"  Learning rate            = {get_lr_strings(self.optim)}")
-
         for step_batch in process_bar:
-            process_bar.desc = f'Epoch = ' \
+            process_bar.desc = f'  [TRAIN] Epoch = ' \
                                f'{self.stats.get_value("curr_epoch")}/{self.stats.get_value("train_epochs")}; ' \
                                f'Global step = {self.stats.get_value("curr_global_step")}/' \
-                               f'{self.stats.get_value("max_steps")}'
+                               f'{self.stats.get_value("max_steps")}; ' \
+                               f'Learning rate = {get_lr_strings(self.optim)}'
             self.model.zero_grad()
             self._preprocess_inputs(step_batch)
             outputs = self.model(**step_batch)
@@ -184,9 +185,10 @@ class Trainer:
         self.stats.update_train_metrics(metrics)
 
         # Log result
-        LOGGER.info(f"  Fit epoch results: ")
-        LOGGER.info(f'    Key metrics: Loss: {metrics["train_loss"]:.4f};')
-        LOGGER.info(f'    Full metrics: {self.stats.get_train_metrics_str()}')
+        LOGGER.info(f'\n'
+                    f'  Fit epoch results: \n'
+                    f'    Key metrics: loss= {metrics["train_loss"]:.4f}\n'
+                    f'    Full metrics: {self.stats.get_train_metrics_str()}')
 
         return metrics
 
@@ -253,12 +255,6 @@ class Trainer:
         num_examples = len(self.eval_set)
         len_iterator = len(eval_iterator)
 
-        # Start fit model with trainning examples
-        LOGGER.info("****** Evaluation Process ****** ")
-        LOGGER.info(f"  Number of samples = {num_examples}")
-        LOGGER.info(f"  Eval batch size = {self.opts.eval_batch_size}")
-        LOGGER.info(f"  Total evaluation steps = {len_iterator}")
-
         # Update statistics
         self.stats.set_value('eval_examples', num_examples)
         self.stats.set_value('eval_batch_size', self.opts.eval_batch_size)
@@ -268,10 +264,10 @@ class Trainer:
                                  total=len_iterator,
                                  leave=True,
                                  position=0,
-                                 desc=f'Epoch = {self.stats.get_value("curr_epoch")}/'
+                                 desc=f'  [EVAL] Epoch = {self.stats.get_value("curr_epoch")}/'
                                       f'{self.stats.get_value("train_epochs")}; '
                                       f'Global step = {self.stats.get_value("curr_global_step")}/'
-                                      f'{self.opts.eval_steps}')
+                                      f'{self.stats.get_value("max_steps")}')
         self.model.eval()
         eval_loss = torch.tensor(0.0).to(self.opts.device)
         golds, preds = [], []
@@ -300,10 +296,11 @@ class Trainer:
         self.stats.update_eval_metrics(metrics)
 
         # Log result
-        LOGGER.info(f"   Evaluation results: ")
-        LOGGER.info(f'     Key metrics: Loss: {metrics["eval_loss"]:.4f}; '
-                    f'{self.opts.metric_for_best_model}: {metrics[f"eval_{self.opts.metric_for_best_model}"]:.4f}')
-        LOGGER.info(f'     Full metrics: {self.stats.get_eval_metrics_str()}')
+        LOGGER.info(f'\n'
+                    f'  Evaluation results:\n'
+                    f'     Key metrics: loss: {metrics["eval_loss"]:.4f}; '
+                    f'{self.opts.metric_for_best_model}: {metrics[f"eval_{self.opts.metric_for_best_model}"]:.4f}\n'
+                    f'     Full metrics: {self.stats.get_eval_metrics_str()}')
         return metrics
 
     def train(self):
@@ -340,11 +337,21 @@ class Trainer:
             self.create_scheduler(num_training_steps=max_steps)
 
         # Start fit model with trainning examples
-        LOGGER.info(f"****** Trainning Summary ******\n"
-                    f"  Training task            = {self.opts.task}\n"
-                    f"  Number of epochs         = {num_train_epochs}\n"
-                    f"  Total optimization steps = {max_steps}\n"
-                    f"  Evaluation strategy      = {self.opts.eval_steps}({self.opts.evaluation_strategy})")
+        LOGGER.info(f"\n"
+                    f"****** Summary ******\n"
+                    f"  Training task                = {self.opts.task}\n"
+                    f"  Training progress\n"
+                    f"    Number of epochs           = {num_train_epochs}\n"
+                    f"    Number of samples          = {len(self.train_set)}\n"
+                    f"    Epoch optimization steps   = {len_iterator}\n"
+                    f"    Global optimization steps  = {max_steps}\n"
+                    f"    Train batch size           = {self.opts.train_batch_size}\n"
+                    f"    Start Learning rate        = {get_lr_strings(self.optim)}\n"
+                    f"  Evaluation progress\n"
+                    f"    Evaluation strategy        = {self.opts.eval_steps} ({self.opts.evaluation_strategy})\n"
+                    f"    Number of samples          = {num_examples}\n"
+                    f"    Eval batch size            = {self.opts.eval_batch_size}\n"
+                    f"    Total evaluation steps     = {len_iterator}")
 
         # Update Training statistics
         self.stats.set_value('max_steps', max_steps)
@@ -353,14 +360,15 @@ class Trainer:
         self.stats.set_value('train_batch_size', self.opts.train_batch_size)
         self.stats.set_value('evaluation_strategy', self.opts.evaluation_strategy)
 
-        for curr_epoch in range(1, self.opts.epochs):
+        for curr_epoch in range(1, self.opts.epochs+1):
             self.stats.set_value('curr_epoch', curr_epoch)
             trained_progress_bar = tqdm(train_iterator,
                                         total=num_update_steps_per_epoch,
                                         leave=True,
                                         position=0,
-                                        desc=f'Epoch = {curr_epoch}/{num_train_epochs}; '
-                                             f'Global step = {self.stats.get_value("curr_global_step")}/{max_steps}')
+                                        desc=f'  [TRAIN] Epoch = {curr_epoch}/{num_train_epochs}; '
+                                             f'Global step = {self.stats.get_value("curr_global_step")}/{max_steps}; '
+                                             f'Learning rate = {get_lr_strings(self.optim)}')
             _ = self._fit_one_epoch(trained_progress_bar)
 
             if self.scheduler_update_strategy == 'epoch':
@@ -377,5 +385,15 @@ class Trainer:
                     self.stats.set_value('best_score', eval_metrics[f'eval_{self.opts.metric_for_best_model}'])
                     self.stats.set_value('best_step', self.stats.get_evaluation_step())
 
+                    if self.early_stopping is not None:
+                        self.early_stopping.restart(eval_metrics[f'eval_{self.opts.metric_for_best_model}'])
+
+                elif self.early_stopping is not None \
+                        and self.early_stopping(eval_metrics[f'eval_{self.opts.metric_for_best_model}']):
+                    self.stats.set_value('closed_reason', 'Early Stopping')
+                    self._close_train_progress()
+                    return
+
         self.stats.set_value('closed_reason', 'finished')
         self._close_train_progress()
+        return

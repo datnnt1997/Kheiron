@@ -1,5 +1,4 @@
 from torch import nn
-from torch.utils.data import DataLoader
 
 from torchtext.datasets import AG_NEWS
 from torchtext.data.utils import get_tokenizer
@@ -86,6 +85,7 @@ options = TrainingOptions(task='text-classification',
                           decay_step=1.0,
                           metric_for_best_model='accuracy',
                           greater_is_better=True,
+                          early_stopping_steps=3,
                           no_cuda=True)
 
 trainer = Trainer(model=model,
